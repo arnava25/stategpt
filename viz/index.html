@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StateGPT — Brain State Trajectory Visualizer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0a0a0f;
+    color: #e0e0e8;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 8px;
+  }
+
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
+    letter-spacing: 0.02em;
+  }
+
+  .subtitle {
+    font-size: 12px;
+    color: #666;
+  }
+
+  .tag {
+    font-size: 10px;
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    color: #7a7aaa;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    grid-template-rows: auto auto auto;
+    gap: 12px;
+    margin-top: 20px;
+  }
+
+  .panel {
+    background: #0f0f1a;
+    border: 1px solid #1e1e30;
+    border-radius: 8px;
+    padding: 16px;
+  }
+
+  .panel-label {
+    font-size: 10px;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 10px;
+  }
+
+  /* Surprisal timeline */
+  #timeline-panel { grid-column: 1; grid-row: 1; }
+  #state-panel    { grid-column: 1; grid-row: 2; }
+  #info-panel     { grid-column: 2; grid-row: 1 / 3; }
+  #controls-panel { grid-column: 1 / 3; grid-row: 3; }
+
+  canvas {
+    width: 100%;
+    display: block;
+    border-radius: 4px;
+  }
+
+  /* State bar */
+  #state-bar {
+    height: 32px;
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    width: 100%;
+  }
+
+  .state-segment {
+    height: 100%;
+    transition: opacity 0.1s;
+    cursor: pointer;
+  }
+
+  /* Controls */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  button {
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    color: #c0c0e0;
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  button:hover { background: #252540; }
+  button.active { background: #2a2a5a; border-color: #5a5acc; color: #fff; }
+
+  input[type=range] {
+    flex: 1;
+    min-width: 200px;
+    accent-color: #5a5acc;
+  }
+
+  .speed-label { font-size: 11px; color: #555; }
+
+  /* Stats */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 6px 0;
+    border-bottom: 1px solid #1a1a2a;
+    font-size: 11px;
+  }
+
+  .stat-label { color: #666; }
+  .stat-value { color: #aaccff; font-weight: 600; }
+  .stat-value.highlight { color: #ff7766; }
+
+  .legend { margin-top: 16px; }
+  .legend-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: #888;
+  }
+
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* Cursor info */
+  #cursor-info {
+    font-size: 11px;
+    color: #666;
+    min-height: 16px;
+    margin-top: 4px;
+  }
+
+  .loading {
+    text-align: center;
+    padding: 40px;
+    color: #444;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>StateGPT</h1>
+  <span class="subtitle">Brain State Trajectory Visualizer</span>
+  <span class="tag">Wilson-Cowan simulation · 12,000 steps · 10 macro-states</span>
+</header>
+
+<div class="grid">
+
+  <!-- Surprisal timeline -->
+  <div class="panel" id="timeline-panel">
+    <div class="panel-label">GPT Surprisal — prediction error over time (nats)</div>
+    <canvas id="surprisal-canvas" height="140"></canvas>
+    <div id="cursor-info">Hover to inspect</div>
+  </div>
+
+  <!-- State sequence bar -->
+  <div class="panel" id="state-panel">
+    <div class="panel-label">Macro-state sequence</div>
+    <div id="state-bar"></div>
+  </div>
+
+  <!-- Info panel -->
+  <div class="panel" id="info-panel">
+    <div class="panel-label">Key findings</div>
+
+    <div class="stat-row">
+      <span class="stat-label">Task event Δ</span>
+      <span class="stat-value highlight">+1.295 nats</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Recovery τ</span>
+      <span class="stat-value">13.7 steps</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Baseline surprisal</span>
+      <span class="stat-value">0.134 nats</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Task events</span>
+      <span class="stat-value">36</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Dominant state (S0)</span>
+      <span class="stat-value">32% of time</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">S0 mean dwell</span>
+      <span class="stat-value">104 steps</span>
+    </div>
+
+    <div class="legend" style="margin-top:20px;">
+      <div class="panel-label" style="margin-bottom:8px;">State palette</div>
+      <div id="legend-rows"></div>
+    </div>
+
+    <div style="margin-top:20px; font-size:10px; color:#444; line-height:1.6;">
+      Surprisal = −log P(state | context)<br>
+      Scored by TinyGPT trained on baseline dynamics.<br>
+      Red lines mark task event onsets.
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="panel" id="controls-panel">
+    <div class="controls">
+      <button id="play-btn">▶ Play</button>
+      <button id="reset-btn">↺ Reset</button>
+      <input type="range" id="scrubber" min="0" max="499" value="0">
+      <span class="speed-label">Speed</span>
+      <button id="speed-btn" class="active">1×</button>
+      <span style="font-size:11px; color:#444; margin-left:auto;">
+        Click timeline to jump · drag to scrub
+      </span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Palette ─────────────────────────────────────────────────────────────────
+const PALETTE = [
+  '#4466dd', '#dd4466', '#44dd88', '#ddaa44',
+  '#aa44dd', '#44aadd', '#dd6644', '#88dd44',
+  '#dd44aa', '#44dddd'
+];
+
+const STATE_NAMES = [
+  'S0 — dominant attractor (32%, dwell 104)',
+  'S1 — rare transient',
+  'S2 — rare transient',
+  'S3 — high-cost gateway (5.83 nats entry)',
+  'S4 — task-exclusive state',
+  'S5 — task-exclusive (20% baseline)',
+  'S6 — intermediate',
+  'S7 — rare variable',
+  'S8 — secondary cluster',
+  'S9 — task-exclusive state',
+];
+
+// ── Generate demo data (Wilson-Cowan simulation approximation) ───────────────
+function generateDemoData() {
+  const N = 500;
+  const nStates = 10;
+  const surprisal = new Float32Array(N);
+  const tokens    = new Uint8Array(N);
+  const events    = new Uint8Array(N);
+
+  // Simulate macro-state sequence: mostly S0 with occasional excursions
+  let state = 0;
+  const transProb = [
+    [0.96, 0.01, 0.01, 0.005, 0.005, 0.005, 0.005, 0.005, 0.005, 0.0],
+    [0.7,  0.1,  0.05, 0.05,  0.02,  0.02,  0.02,  0.02,  0.02,  0.01],
+    [0.65, 0.05, 0.15, 0.05,  0.02,  0.02,  0.02,  0.02,  0.02,  0.0],
+    [0.5,  0.05, 0.05, 0.2,   0.1,   0.05,  0.02,  0.01,  0.01,  0.01],
+    [0.55, 0.05, 0.05, 0.1,   0.15,  0.05,  0.02,  0.01,  0.01,  0.01],
+    [0.6,  0.05, 0.05, 0.05,  0.05,  0.1,   0.05,  0.02,  0.02,  0.01],
+    [0.7,  0.05, 0.05, 0.05,  0.02,  0.05,  0.05,  0.01,  0.01,  0.01],
+    [0.75, 0.05, 0.05, 0.02,  0.02,  0.02,  0.02,  0.05,  0.01,  0.01],
+    [0.7,  0.05, 0.05, 0.02,  0.02,  0.02,  0.02,  0.01,  0.1,   0.01],
+    [0.6,  0.05, 0.05, 0.1,   0.1,   0.05,  0.02,  0.01,  0.01,  0.01],
+  ];
+
+  // Place 36 events spread across timeline
+  const eventPositions = new Set();
+  for (let k = 0; k < 36; k++) {
+    eventPositions.add(Math.floor(10 + k * (N - 20) / 36));
+  }
+
+  // Baseline surprisal for each transition
+  const entrySurprisal = [0.13, 1.2, 0.9, 5.8, 2.1, 0.8, 0.5, 1.8, 0.6, 2.4];
+
+  for (let i = 0; i < N; i++) {
+    tokens[i] = state;
+    events[i] = eventPositions.has(i) ? 1 : 0;
+
+    // Boost transition probability near events
+    const nearEvent = [...eventPositions].some(e => Math.abs(e - i) < 5);
+
+    let surp = entrySurprisal[state] * (0.7 + Math.random() * 0.6);
+    if (nearEvent) {
+      surp += 2.0 + Math.random() * 2.5;
+      // More likely to visit task-exclusive states
+      if (Math.random() < 0.4) state = [3, 4, 5, 9][Math.floor(Math.random() * 4)];
+    } else {
+      if (Math.random() < 0.1) {
+        const row = transProb[state];
+        const r = Math.random();
+        let cum = 0;
+        for (let s = 0; s < nStates; s++) {
+          cum += row[s];
+          if (r < cum) { state = s; break; }
+        }
+      }
+    }
+    surprisal[i] = Math.max(0, surp);
+  }
+
+  // Smooth surprisal slightly
+  for (let i = 2; i < N - 2; i++) {
+    surprisal[i] = (surprisal[i-2] + surprisal[i-1] + surprisal[i]*2 +
+                    surprisal[i+1] + surprisal[i+2]) / 6;
+  }
+
+  return { surprisal, tokens, events, N, nStates };
+}
+
+// ── App ──────────────────────────────────────────────────────────────────────
+const data = generateDemoData();
+const { surprisal, tokens, events, N } = data;
+
+let cursor    = 0;
+let playing   = false;
+let speed     = 1;
+let animId    = null;
+let lastTime  = null;
+let dragging  = false;
+
+// Max surprisal for scaling
+const maxSurp = Math.max(...surprisal) * 1.05;
+
+// ── Canvas setup ────────────────────────────────────────────────────────────
+const canvas  = document.getElementById('surprisal-canvas');
+const ctx     = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width  = rect.width - 32;
+  canvas.height = 140;
+  draw();
+}
+
+// ── State bar ───────────────────────────────────────────────────────────────
+function buildStateBar() {
+  const bar = document.getElementById('state-bar');
+  bar.innerHTML = '';
+  for (let i = 0; i < N; i++) {
+    const seg = document.createElement('div');
+    seg.className = 'state-segment';
+    seg.style.background = PALETTE[tokens[i]];
+    seg.style.width = (100 / N) + '%';
+    seg.style.opacity = events[i] ? '1' : '0.75';
+    seg.title = `t=${i} STATE_${tokens[i]}`;
+    seg.addEventListener('click', () => { cursor = i; draw(); });
+    bar.appendChild(seg);
+  }
+}
+
+// ── Legend ──────────────────────────────────────────────────────────────────
+function buildLegend() {
+  const el = document.getElementById('legend-rows');
+  for (let s = 0; s < 10; s++) {
+    const row = document.createElement('div');
+    row.className = 'legend-row';
+    row.innerHTML = `
+      <div class="legend-dot" style="background:${PALETTE[s]}"></div>
+      <span>${STATE_NAMES[s].split(' — ')[0]}</span>
+    `;
+    el.appendChild(row);
+  }
+}
+
+// ── Draw ────────────────────────────────────────────────────────────────────
+function draw() {
+  const W = canvas.width;
+  const H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background grid
+  ctx.strokeStyle = '#1a1a2a';
+  ctx.lineWidth   = 1;
+  for (let y = 0; y <= 4; y++) {
+    const py = H - (y / 4) * (H - 16) - 8;
+    ctx.beginPath();
+    ctx.moveTo(0, py);
+    ctx.lineTo(W, py);
+    ctx.stroke();
+    ctx.fillStyle = '#333';
+    ctx.font = '9px monospace';
+    ctx.fillText((maxSurp * y / 4).toFixed(1), 2, py - 2);
+  }
+
+  const xScale = W / N;
+
+  // Event lines
+  for (let i = 0; i < N; i++) {
+    if (events[i]) {
+      const x = i * xScale;
+      ctx.strokeStyle = 'rgba(220, 80, 80, 0.35)';
+      ctx.lineWidth   = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+      ctx.stroke();
+    }
+  }
+
+  // State-colored fill under surprisal curve
+  for (let i = 0; i < N - 1; i++) {
+    const x0 = i * xScale;
+    const x1 = (i + 1) * xScale;
+    const y0 = H - 8 - (surprisal[i]     / maxSurp) * (H - 16);
+    const y1 = H - 8 - (surprisal[i + 1] / maxSurp) * (H - 16);
+    const col = PALETTE[tokens[i]];
+
+    ctx.fillStyle = col + '22';
+    ctx.beginPath();
+    ctx.moveTo(x0, H - 8);
+    ctx.lineTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.lineTo(x1, H - 8);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Surprisal line
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(180, 180, 255, 0.85)';
+  ctx.lineWidth   = 1.5;
+  for (let i = 0; i < N; i++) {
+    const x = i * xScale;
+    const y = H - 8 - (surprisal[i] / maxSurp) * (H - 16);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Cursor line
+  const cx = cursor * xScale;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth   = 1.5;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(cx, 0);
+  ctx.lineTo(cx, H);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Cursor dot
+  const cy = H - 8 - (surprisal[cursor] / maxSurp) * (H - 16);
+  ctx.fillStyle = PALETTE[tokens[cursor]];
+  ctx.beginPath();
+  ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Update cursor info
+  document.getElementById('cursor-info').textContent =
+    `t=${cursor}  STATE_${tokens[cursor]}  surprisal=${surprisal[cursor].toFixed(3)} nats` +
+    (events[cursor] ? '  ⚡ TASK EVENT' : '');
+
+  // Update scrubber
+  document.getElementById('scrubber').value = cursor;
+
+  // Highlight state bar segment
+  const bar = document.getElementById('state-bar');
+  const segs = bar.children;
+  for (let i = 0; i < segs.length; i++) {
+    segs[i].style.opacity = i === cursor ? '1' : (events[i] ? '0.85' : '0.6');
+    segs[i].style.outline = i === cursor ? `2px solid ${PALETTE[tokens[i]]}` : 'none';
+  }
+}
+
+// ── Animation ────────────────────────────────────────────────────────────────
+function step(ts) {
+  if (!playing) return;
+  if (!lastTime) lastTime = ts;
+  const dt = ts - lastTime;
+  if (dt > 40 / speed) {
+    cursor = (cursor + 1) % N;
+    draw();
+    lastTime = ts;
+  }
+  animId = requestAnimationFrame(step);
+}
+
+function togglePlay() {
+  playing = !playing;
+  document.getElementById('play-btn').textContent = playing ? '⏸ Pause' : '▶ Play';
+  if (playing) {
+    lastTime = null;
+    animId = requestAnimationFrame(step);
+  } else {
+    cancelAnimationFrame(animId);
+  }
+}
+
+// ── Canvas interaction ───────────────────────────────────────────────────────
+function canvasXtoCursor(clientX) {
+  const rect = canvas.getBoundingClientRect();
+  const x    = clientX - rect.left;
+  return Math.max(0, Math.min(N - 1, Math.round(x / rect.width * N)));
+}
+
+canvas.addEventListener('mousedown', e => {
+  dragging = true;
+  cursor   = canvasXtoCursor(e.clientX);
+  draw();
+});
+canvas.addEventListener('mousemove', e => {
+  if (dragging) {
+    cursor = canvasXtoCursor(e.clientX);
+    draw();
+  } else {
+    // Hover preview
+    const hc = canvasXtoCursor(e.clientX);
+    document.getElementById('cursor-info').textContent =
+      `t=${hc}  STATE_${tokens[hc]}  surprisal=${surprisal[hc].toFixed(3)} nats` +
+      (events[hc] ? '  ⚡ TASK EVENT' : '');
+  }
+});
+canvas.addEventListener('mouseup', () => { dragging = false; });
+canvas.addEventListener('mouseleave', () => { dragging = false; });
+
+// ── Controls ─────────────────────────────────────────────────────────────────
+document.getElementById('play-btn').addEventListener('click', togglePlay);
+document.getElementById('reset-btn').addEventListener('click', () => {
+  cursor = 0; playing = false;
+  cancelAnimationFrame(animId);
+  document.getElementById('play-btn').textContent = '▶ Play';
+  draw();
+});
+document.getElementById('scrubber').addEventListener('input', e => {
+  cursor = parseInt(e.target.value);
+  draw();
+});
+document.getElementById('speed-btn').addEventListener('click', () => {
+  const speeds = [1, 2, 5, 10];
+  const labels = ['1×', '2×', '5×', '10×'];
+  const i = speeds.indexOf(speed);
+  speed = speeds[(i + 1) % speeds.length];
+  document.getElementById('speed-btn').textContent = labels[(i + 1) % labels.length];
+});
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', resizeCanvas);
+buildStateBar();
+buildLegend();
+resizeCanvas();
+</script>
+</body>
+</html>

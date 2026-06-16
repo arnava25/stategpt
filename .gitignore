@@ -1,0 +1,10 @@
+brain/data/
+outputs/**/*.npy
+outputs/**/*.pt
+outputs/**/*.csv
+__pycache__/
+*.pyc
+.DS_Store
+venv/
+env/
+nilearn_data/
