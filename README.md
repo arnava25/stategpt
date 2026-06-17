@@ -5,7 +5,8 @@ to neural state sequences, implementing the core claim of predictive processing
 theory: the brain is a prediction machine, and cognition is the process of
 minimizing prediction error.
 
-**[Live visualization](viz/index.html)** — open in browser, no setup needed.
+**[Live visualization](viz/index.html)** 
+Open in browser, no setup needed.
 
 ---
 
