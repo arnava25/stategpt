@@ -5,8 +5,7 @@ to neural state sequences, implementing the core claim of predictive processing
 theory: the brain is a prediction machine, and cognition is the process of
 minimizing prediction error.
 
-**[Live visualization](viz/index.html)** 
-Open in browser, no setup needed.
+**[Live visualization](viz/index.html)** (open in browser, no setup needed)
 
 ---
 
@@ -150,6 +149,6 @@ If you use this code, please cite the ds000115 dataset:
 
 ## Author
 
-Arnav Amit — independent researcher, UCLA Psychology '24, MD applicant.
+Arnav Amit, independent researcher, UCLA Psychology '24, MD applicant.
 Background in acute psychiatric care (PHP/IOP) and early psychosis research
 (UCLA Aftercare, California OnTrack).
